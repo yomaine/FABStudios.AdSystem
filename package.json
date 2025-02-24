@@ -1,0 +1,30 @@
+{
+    "name": "com.fabstudios.adsystem",
+    "version": "1.0.0",
+    "displayName": "FAB Studios Ad System",
+    "description": "A modular and portable ad management system for Unity games, supporting interstitial, banner, and app open ads",
+    "unity": "2021.3",
+    "dependencies": {
+      "com.unity.textmeshpro": "3.0.6",
+      "com.unity.ugui": "1.0.0"
+    },
+    "keywords": [
+      "ads",
+      "monetization",
+      "mobile",
+      "admob",
+      "advertisement"
+    ],
+    "author": {
+      "name": "FAB Studios",
+      "email": "your.email@example.com",
+      "url": "https://your-website.com"
+    },
+    "samples": [
+      {
+        "displayName": "Ad System Test Scene",
+        "description": "Contains a test scene demonstrating basic ad functionality",
+        "path": "Samples~/TestScene"
+      }
+    ]
+  }
