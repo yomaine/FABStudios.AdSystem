@@ -2,24 +2,23 @@ using UnityEngine;
 using GoogleMobileAds.Api;
 using System;
 using System.Collections;
-using Unity.VisualScripting.FullSerializer;
 
 namespace FABStudios.AdSystem
 {
     /// <summary>
-    /// Manages mobile ads for the game, handling both interstitial and app open ads.
-    /// This script should be placed on a GameObject in your starting scene.
+    /// Enhanced ad management system for FAB Studios games.
+    /// Handles interstitial, app open, and banner ads with comprehensive error handling and testing support.
     /// </summary>
     public class AdManagerNew : MonoBehaviour
     {
-        // Singleton pattern for easy access from other scripts
+        #region Properties and Fields
         public static AdManagerNew Instance { get; private set; }
 
         private bool isTestEnvironment =
 #if UNITY_EDITOR
-        true;
+            true;
 #else
-        false;
+            false;
 #endif
 
         [Header("Configuration")]
@@ -27,7 +26,7 @@ namespace FABStudios.AdSystem
         [Tooltip("Assign your AdConfig asset here")]
         private AdConfig adConfig;
 
-        // Ad instances that will hold our loaded advertisements
+        // Ad instances
         private InterstitialAd interstitialAd;
         private AppOpenAd appOpenAd;
         private BannerView bannerView;
@@ -44,6 +43,7 @@ namespace FABStudios.AdSystem
         private const int MAX_INIT_RETRIES = 3;
         private int initRetryCount = 0;
         private const float RETRY_DELAY = 2f;
+        #endregion
 
         #region Initialization
         private void Awake()
@@ -62,32 +62,6 @@ namespace FABStudios.AdSystem
             }
         }
 
-        private void ValidateAndSetupConfiguration()
-        {
-            if (adConfig == null)
-            {
-                Debug.LogError("AdManagerNew: AdConfig not assigned! Please assign an AdConfig asset in the Inspector.");
-                return;
-            }
-
-            // Set up test ads if enabled
-            if (adConfig.useTestAds)
-            {
-                adConfig.interstitialAdUnitId = AdConfig.TEST_INTERSTITIAL_ANDROID;
-                adConfig.appOpenAdUnitId = AdConfig.TEST_APP_OPEN_ANDROID;
-                DebugLog("Using test ad unit IDs");
-            }
-            else
-            {
-                // Validate production ad IDs
-                if (string.IsNullOrEmpty(adConfig.interstitialAdUnitId) ||
-                    string.IsNullOrEmpty(adConfig.appOpenAdUnitId))
-                {
-                    Debug.LogError("AdManagerNew: Production ad unit IDs are not set in AdConfig!");
-                }
-            }
-        }
-
         private void Start()
         {
             if (adConfig != null)
@@ -96,43 +70,39 @@ namespace FABStudios.AdSystem
             }
         }
 
-        private IEnumerator SimulateAdClose(float delay = 3f)
+        private void ValidateAndSetupConfiguration()
         {
-            if (!isTestEnvironment) yield break;
-
-            yield return new WaitForSecondsRealtime(delay);
-            DebugLog("Test environment: Simulating ad close");
-
-            // Create a temporary event handler to simulate the close sequence
-            if (appOpenAd != null && isShowingAd)
+            if (adConfig == null)
             {
-                // We'll manually trigger the same actions that would happen when an ad closes
-                isShowingAd = false;
-                DebugLog("App open ad closed (simulated)");
-                if (adConfig.pauseOnAd)
-                {
-                    Time.timeScale = 1;
-                    DebugLog("Restoring time scale to 1");
-                }
-                appOpenAd.Destroy();
-                appOpenAd = null;
-                LoadAppOpenAd();
-                adConfig.onAdClosed?.Invoke(AdType.AppOpen);
+                Debug.LogError("AdManagerNew: AdConfig not assigned! Please assign an AdConfig asset in the Inspector.");
+                return;
             }
-            else if (interstitialAd != null && isShowingAd)
+
+            if (adConfig.useTestAds || isTestEnvironment)
             {
-                // Same sequence for interstitial ads
-                isShowingAd = false;
-                DebugLog("Interstitial ad closed (simulated)");
-                if (adConfig.pauseOnAd)
-                {
-                    Time.timeScale = 1;
-                    DebugLog("Restoring time scale to 1");
-                }
-                interstitialAd.Destroy();
-                interstitialAd = null;
-                LoadInterstitialAd();
-                adConfig.onAdClosed?.Invoke(AdType.Interstitial);
+                SetupTestAds();
+            }
+            else
+            {
+                ValidateProductionAdIds();
+            }
+        }
+
+        private void SetupTestAds()
+        {
+            adConfig.interstitialAdUnitId = AdConfig.TEST_INTERSTITIAL_ANDROID;
+            adConfig.appOpenAdUnitId = AdConfig.TEST_APP_OPEN_ANDROID;
+            adConfig.bannerAdUnitId = AdConfig.TEST_BANNER_ANDROID;
+            DebugLog("Using test ad unit IDs");
+        }
+
+        private void ValidateProductionAdIds()
+        {
+            if (string.IsNullOrEmpty(adConfig.interstitialAdUnitId) ||
+                string.IsNullOrEmpty(adConfig.appOpenAdUnitId) ||
+                string.IsNullOrEmpty(adConfig.bannerAdUnitId))
+            {
+                Debug.LogError("AdManagerNew: Production ad unit IDs are not properly configured!");
             }
         }
 
@@ -192,7 +162,6 @@ namespace FABStudios.AdSystem
 
             DebugLog("Loading interstitial ad");
 
-            // Clean up existing ad before loading new one
             if (interstitialAd != null)
             {
                 interstitialAd.Destroy();
@@ -207,7 +176,7 @@ namespace FABStudios.AdSystem
                 {
                     if (error != null)
                     {
-                        DebugLog($"Interstitial ad failed to load: {error.GetMessage()}");
+                        Debug.LogError($"AdManagerNew: Interstitial ad failed to load: {error.GetMessage()}");
                         return;
                     }
 
@@ -253,7 +222,7 @@ namespace FABStudios.AdSystem
 
             interstitialAd.OnAdFullScreenContentFailed += (AdError error) =>
             {
-                DebugLog($"Interstitial ad failed to show: {error.GetMessage()}");
+                Debug.LogError($"AdManagerNew: Interstitial ad failed to show: {error.GetMessage()}");
                 isShowingAd = false;
                 if (adConfig.pauseOnAd) Time.timeScale = 1;
                 LoadInterstitialAd();
@@ -289,8 +258,6 @@ namespace FABStudios.AdSystem
                 DebugLog("Showing interstitial ad");
                 interstitialAd.Show();
 
-                // Start both the safety timeout and the test close simulation
-                StartCoroutine(SafetyTimeout());
                 if (isTestEnvironment)
                 {
                     StartCoroutine(SimulateAdClose());
@@ -298,7 +265,7 @@ namespace FABStudios.AdSystem
             }
             catch (Exception e)
             {
-                DebugLog($"Error showing interstitial ad: {e.Message}");
+                Debug.LogError($"AdManagerNew: Error showing interstitial ad: {e.Message}");
                 isShowingAd = false;
                 if (adConfig.pauseOnAd) Time.timeScale = 1;
                 LoadInterstitialAd();
@@ -326,7 +293,7 @@ namespace FABStudios.AdSystem
                 {
                     if (error != null)
                     {
-                        DebugLog($"App open ad failed to load: {error.GetMessage()}");
+                        Debug.LogError($"AdManagerNew: App open ad failed to load: {error.GetMessage()}");
                         return;
                     }
 
@@ -338,64 +305,32 @@ namespace FABStudios.AdSystem
 
         private void RegisterAppOpenEvents()
         {
-            if (appOpenAd == null)
-            {
-                DebugLog("Cannot register events for null app open ad");
-                return;
-            }
+            if (appOpenAd == null) return;
 
-            // When the ad opens
             appOpenAd.OnAdFullScreenContentOpened += () =>
             {
                 isShowingAd = true;
                 DebugLog("App open ad opened");
-                if (adConfig.pauseOnAd)
-                {
-                    Time.timeScale = 0;
-                    DebugLog("Setting time scale to 0");
-                }
+                if (adConfig.pauseOnAd) Time.timeScale = 0;
                 adConfig.onAdDisplayed?.Invoke(AdType.AppOpen);
             };
 
-            // When the ad closes
             appOpenAd.OnAdFullScreenContentClosed += () =>
             {
                 isShowingAd = false;
                 DebugLog("App open ad closed");
-                if (adConfig.pauseOnAd)
-                {
-                    Time.timeScale = 1;
-                    DebugLog("Restoring time scale to 1");
-                }
-                // Clean up and reload
-                appOpenAd.Destroy();
-                appOpenAd = null;
+                if (adConfig.pauseOnAd) Time.timeScale = 1;
                 LoadAppOpenAd();
                 adConfig.onAdClosed?.Invoke(AdType.AppOpen);
             };
 
-            // Error handling
             appOpenAd.OnAdFullScreenContentFailed += (AdError error) =>
             {
-                string errorMessage = $"App open ad failed to show: {error.GetMessage()}";
-                DebugLog(errorMessage);
+                Debug.LogError($"AdManagerNew: App open ad failed to show: {error.GetMessage()}");
                 isShowingAd = false;
-                if (adConfig.pauseOnAd)
-                {
-                    Time.timeScale = 1;
-                    DebugLog("Restoring time scale after error");
-                }
-                // Clean up and reload
-                appOpenAd.Destroy();
-                appOpenAd = null;
+                if (adConfig.pauseOnAd) Time.timeScale = 1;
                 LoadAppOpenAd();
-                adConfig.onAdFailed?.Invoke(AdType.AppOpen, errorMessage);
-            };
-
-            // Impression tracking
-            appOpenAd.OnAdImpressionRecorded += () =>
-            {
-                DebugLog("App open ad recorded an impression");
+                adConfig.onAdFailed?.Invoke(AdType.AppOpen, error.GetMessage());
             };
         }
 
@@ -419,8 +354,6 @@ namespace FABStudios.AdSystem
                 DebugLog("Showing app open ad");
                 appOpenAd.Show();
 
-                // Start both the safety timeout and the test close simulation
-                StartCoroutine(SafetyTimeout());
                 if (isTestEnvironment)
                 {
                     StartCoroutine(SimulateAdClose());
@@ -428,37 +361,10 @@ namespace FABStudios.AdSystem
             }
             catch (Exception e)
             {
-                DebugLog($"Error showing app open ad: {e.Message}");
+                Debug.LogError($"AdManagerNew: Error showing app open ad: {e.Message}");
                 isShowingAd = false;
                 if (adConfig.pauseOnAd) Time.timeScale = 1;
                 LoadAppOpenAd();
-            }
-        }
-
-        private IEnumerator SafetyTimeout()
-        {
-            // Wait longer than the simulated close to act as a true safety net
-            yield return new WaitForSecondsRealtime(8f);
-
-            if (isShowingAd)
-            {
-                DebugLog("Ad timeout - forcing cleanup");
-                isShowingAd = false;
-                if (adConfig.pauseOnAd) Time.timeScale = 1;
-
-                if (appOpenAd != null)
-                {
-                    appOpenAd.Destroy();
-                    appOpenAd = null;
-                    LoadAppOpenAd();
-                }
-
-                if (interstitialAd != null)
-                {
-                    interstitialAd.Destroy();
-                    interstitialAd = null;
-                    LoadInterstitialAd();
-                }
             }
         }
 
@@ -486,11 +392,10 @@ namespace FABStudios.AdSystem
                 bannerView = null;
             }
 
-            // Create a banner view using configuration
             bannerView = new BannerView(
                 adConfig.GetBannerAdUnitId(),
                 adConfig.bannerSize,
-                adConfig.GetGoogleAdPosition() // This converts our position to Google's
+                adConfig.GetGoogleAdPosition()
             );
 
             RegisterBannerEvents();
@@ -514,7 +419,7 @@ namespace FABStudios.AdSystem
 
             bannerView.OnBannerAdLoadFailed += (LoadAdError error) =>
             {
-                DebugLog($"Banner ad failed to load: {error.GetMessage()}");
+                Debug.LogError($"AdManagerNew: Banner ad failed to load: {error.GetMessage()}");
                 adConfig.onAdFailed?.Invoke(AdType.Banner, error.GetMessage());
             };
 
@@ -528,35 +433,106 @@ namespace FABStudios.AdSystem
         {
             if (!isInitialized)
             {
-                DebugLog("Cannot show banner ad - not initialized");
+                Debug.Log("AdManagerNew: Cannot show banner ad - not initialized");
                 return;
             }
 
-            if (bannerView == null)
+            try
             {
-                DebugLog("Banner ad not ready - loading new one");
-                LoadBannerAd();
-                return;
+                Debug.Log("AdManagerNew: Showing banner ad");
+                if (bannerView == null)
+                {
+                    LoadBannerAd();
+                }
+                else
+                {
+                    bannerView.Show();
+                }
+                isBannerShowing = true;
+                adConfig.onAdDisplayed?.Invoke(AdType.Banner);
             }
-
-            DebugLog("Showing banner ad");
-            bannerView.Show();
-            isBannerShowing = true;
-            adConfig.onAdDisplayed?.Invoke(AdType.Banner);
+            catch (Exception e)
+            {
+                Debug.LogError($"AdManagerNew: Error showing banner ad: {e.Message}");
+            }
         }
 
         public void HideBannerAd()
         {
-            if (bannerView != null && isBannerShowing)
+            if (bannerView != null)
             {
-                DebugLog("Hiding banner ad");
-                bannerView.Hide();
+                try
+                {
+                    Debug.Log("AdManagerNew: Hiding banner ad");
+                    bannerView.Hide();
+                    bannerView.Destroy(); // Add this line to fully destroy the banner
+                    bannerView = null;    // Add this line to clear the reference
+                    isBannerShowing = false;
+                    adConfig.onAdClosed?.Invoke(AdType.Banner);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"AdManagerNew: Error hiding banner ad: {e.Message}");
+                }
+            }
+        }
+
+        public void ToggleBannerAd()
+        {
+            Debug.Log($"AdManagerNew: Toggling banner, current state: {isBannerShowing}");
+            if (isBannerShowing)
+            {
+                HideBannerAd();
+            }
+            else
+            {
+                ShowBannerAd();
+            }
+        }
+
+        public void DestroyBannerAd()
+        {
+            if (bannerView != null)
+            {
+                bannerView.Destroy();
+                bannerView = null;
                 isBannerShowing = false;
-                adConfig.onAdClosed?.Invoke(AdType.Banner);
             }
         }
         #endregion
 
+        #region Test Environment Helpers
+        private IEnumerator SimulateAdClose(float delay = 3f)
+        {
+            if (!isTestEnvironment) yield break;
+
+            yield return new WaitForSecondsRealtime(delay);
+            DebugLog("Test environment: Simulating ad close");
+
+            if (appOpenAd != null && isShowingAd)
+            {
+                isShowingAd = false;
+                DebugLog("App open ad closed (simulated)");
+                if (adConfig.pauseOnAd) Time.timeScale = 1;
+                appOpenAd.Destroy();
+                appOpenAd = null;
+                LoadAppOpenAd();
+                adConfig.onAdClosed?.Invoke(AdType.AppOpen);
+            }
+            else if (interstitialAd != null && isShowingAd)
+            {
+                isShowingAd = false;
+                DebugLog("Interstitial ad closed (simulated)");
+                if (adConfig.pauseOnAd) Time.timeScale = 1;
+                interstitialAd.Destroy();
+                interstitialAd = null;
+                LoadInterstitialAd();
+                adConfig.onAdClosed?.Invoke(AdType.Interstitial);
+            }
+        }
+        #endregion
+
+        #region Utility Methods
         private void DebugLog(string message)
         {
             if (adConfig != null && adConfig.debugMode)
@@ -576,11 +552,11 @@ namespace FABStudios.AdSystem
             {
                 appOpenAd.Destroy();
             }
-
             if (bannerView != null)
             {
                 bannerView.Destroy();
             }
         }
+        #endregion
     }
 }
